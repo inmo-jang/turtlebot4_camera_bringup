@@ -20,7 +20,7 @@
 4) Copy `start_camera.sh` to the root folder
     ```
     cd ~
-    cp ~/ros2/src/turtlebot4_camera_bringup/start_camera.sh ~/start_camera.sh
+    cp ~/ros2_ws/src/turtlebot4_camera_bringup/start_camera.sh ~/start_camera.sh
     ```
 
 5) Run the shell script
