@@ -13,6 +13,7 @@
 #include "depthai/device/DataQueue.hpp"
 #include "depthai/device/Device.hpp"
 #include "depthai/pipeline/Pipeline.hpp"
+#include "depthai/pipeline/node/ColorCamera.hpp"
 #include "depthai/pipeline/node/MonoCamera.hpp"
 #include "depthai/pipeline/node/StereoDepth.hpp"
 #include "depthai/pipeline/node/XLinkOut.hpp"
@@ -21,7 +22,18 @@
 #include "depthai_bridge/ImageConverter.hpp"
 
 std::tuple<dai::Pipeline, int, int> createPipeline(
-    bool withDepth, bool lrcheck, bool extended, bool subpixel, int confidence, int LRchecktresh, std::string resolution) {
+    bool withDepth, 
+    bool lrcheck, 
+    bool extended, 
+    bool subpixel, 
+    int confidence, 
+    int LRchecktresh, 
+    std::string resolution, 
+    std::string cResolution, 
+    int previewWidth, 
+    int previewHeight) {
+
+
     dai::Pipeline pipeline;
     dai::node::MonoCamera::Properties::SensorResolution monoResolution;
     auto monoLeft = pipeline.create<dai::node::MonoCamera>();
@@ -30,7 +42,8 @@ std::tuple<dai::Pipeline, int, int> createPipeline(
     auto xoutRight = pipeline.create<dai::node::XLinkOut>();
     auto stereo = pipeline.create<dai::node::StereoDepth>();
     auto xoutDepth = pipeline.create<dai::node::XLinkOut>();
-
+    auto colorCam = pipeline.create<dai::node::ColorCamera>();
+    
     // XLinkOut
     xoutLeft->setStreamName("left");
     xoutRight->setStreamName("right");
@@ -77,6 +90,32 @@ std::tuple<dai::Pipeline, int, int> createPipeline(
     stereo->setExtendedDisparity(extended);
     stereo->setSubpixel(subpixel);
 
+
+    // Color Camera
+
+    dai::ColorCameraProperties::SensorResolution colorResolution;
+    if(cResolution == "1080p") {
+        colorResolution = dai::ColorCameraProperties::SensorResolution::THE_1080_P;
+    } else if(cResolution == "4K") {
+        colorResolution = dai::ColorCameraProperties::SensorResolution::THE_4_K;
+    }
+
+    colorCam->setResolution(colorResolution);
+    if(cResolution == "1080p") {
+        colorCam->setVideoSize(1920, 1080);
+    } else {
+        colorCam->setVideoSize(3840, 2160);
+    }
+
+    colorCam->setPreviewSize(previewWidth, previewHeight);
+    colorCam->setInterleaved(false);
+    colorCam->setColorOrder(dai::ColorCameraProperties::ColorOrder::BGR);
+    colorCam->setFps(30);
+
+    auto xlinkPreviewOut = pipeline.create<dai::node::XLinkOut>();
+    xlinkPreviewOut->setStreamName("preview");   
+    colorCam->preview.link(xlinkPreviewOut->input);
+
     // Link plugins CAM -> STEREO -> XLINK
     monoLeft->out.link(stereo->left);
     monoRight->out.link(stereo->right);
@@ -97,10 +136,11 @@ int main(int argc, char** argv) {
     rclcpp::init(argc, argv);
     auto node = rclcpp::Node::make_shared("stereo_node");
 
-    std::string tfPrefix, mode, monoResolution;
+    std::string tfPrefix, mode, monoResolution, colorResolution;
     bool lrcheck, extended, subpixel, enableDepth;
     int confidence, LRchecktresh;
     int monoWidth, monoHeight;
+    int previewWidth, previewHeight;
     dai::Pipeline pipeline;
 
     node->declare_parameter("tf_prefix", "oak");
@@ -111,6 +151,9 @@ int main(int argc, char** argv) {
     node->declare_parameter("confidence", 200);
     node->declare_parameter("LRchecktresh", 5);
     node->declare_parameter("monoResolution", "720p");
+    node->declare_parameter("colorResolution", "1080p");
+    node->declare_parameter("previewWidth", 300);
+    node->declare_parameter("previewHeight", 300);    
 
     node->get_parameter("tf_prefix", tfPrefix);
     node->get_parameter("mode", mode);
@@ -120,6 +163,11 @@ int main(int argc, char** argv) {
     node->get_parameter("confidence", confidence);
     node->get_parameter("LRchecktresh", LRchecktresh);
     node->get_parameter("monoResolution", monoResolution);
+    node->get_parameter("colorResolution", colorResolution);
+
+    node->get_parameter("previewWidth", previewWidth);
+    node->get_parameter("previewHeight", previewHeight);
+
 
     if(mode == "depth") {
         enableDepth = true;
@@ -127,10 +175,11 @@ int main(int argc, char** argv) {
         enableDepth = false;
     }
 
-    std::tie(pipeline, monoWidth, monoHeight) = createPipeline(enableDepth, lrcheck, extended, subpixel, confidence, LRchecktresh, monoResolution);
+    std::tie(pipeline, monoWidth, monoHeight) = createPipeline(enableDepth, lrcheck, extended, subpixel, confidence, LRchecktresh, monoResolution, colorResolution, previewWidth, previewHeight);
     dai::Device device(pipeline);
     auto leftQueue = device.getOutputQueue("left", 30, false);
     auto rightQueue = device.getOutputQueue("right", 30, false);
+    auto previewQueue = device.getOutputQueue("preview", 30, false);
     std::shared_ptr<dai::DataOutputQueue> stereoQueue;
     if(enableDepth) {
         stereoQueue = device.getOutputQueue("depth", 30, false);
@@ -172,6 +221,24 @@ int main(int argc, char** argv) {
         "right");
 
     rightPublish.addPublisherCallback();
+
+
+    dai::rosBridge::ImageConverter rgbConverter(tfPrefix + "_rgb_camera_optical_frame", true);
+    auto previewCameraInfo = rgbConverter.calibrationToCameraInfo(calibrationHandler, dai::CameraBoardSocket::CAM_A, previewWidth, previewHeight);
+    dai::rosBridge::BridgePublisher<sensor_msgs::msg::Image, dai::ImgFrame> rgbPreviewPublish(
+        previewQueue,
+        node,
+        std::string("color/preview/image"),
+        std::bind(&dai::rosBridge::ImageConverter::toRosMsg,
+            &rgbConverter,  // since the converter has the same frame name
+                            // and image type is also same we can reuse it
+            std::placeholders::_1,
+            std::placeholders::_2),
+        30,
+        previewCameraInfo,
+        "color/preview");
+
+    rgbPreviewPublish.addPublisherCallback();    
 
     if(mode == "depth") {
         dai::rosBridge::BridgePublisher<sensor_msgs::msg::Image, dai::ImgFrame> depthPublish(

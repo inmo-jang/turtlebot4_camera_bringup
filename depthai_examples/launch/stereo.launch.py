@@ -10,8 +10,6 @@ import launch_ros.descriptions
 
 
 def generate_launch_description():
-    default_rviz = os.path.join(get_package_share_directory('depthai_examples'),
-                                'rviz', 'stereoPointCloud.rviz')
     urdf_launch_dir = os.path.join(get_package_share_directory('depthai_descriptions'), 'launch')
     
 
@@ -33,7 +31,8 @@ def generate_launch_description():
     subpixel       = LaunchConfiguration('subpixel', default = True)
     confidence     = LaunchConfiguration('confidence', default = 200)
     LRchecktresh   = LaunchConfiguration('LRchecktresh', default = 5)
-    monoResolution = LaunchConfiguration('monoResolution',  default = '720p')
+#    monoResolution = LaunchConfiguration('monoResolution',  default = '720p')
+    monoResolution = LaunchConfiguration('monoResolution',  default = '400p')
 
     declare_camera_model_cmd = DeclareLaunchArgument(
         'camera_model',
@@ -185,9 +184,6 @@ def generate_launch_description():
             ],
             output='screen',)
 
-    rviz_node = launch_ros.actions.Node(
-            package='rviz2', executable='rviz2', output='screen',
-            arguments=['--display-config', default_rviz])
 
     ld = LaunchDescription()
     ld.add_action(declare_tf_prefix_cmd)
@@ -216,6 +212,5 @@ def generate_launch_description():
 
     ld.add_action(metric_converter_node)
     ld.add_action(point_cloud_node)
-    ld.add_action(rviz_node)
-    return ld
 
+    return ld
