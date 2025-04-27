@@ -27,3 +27,10 @@
     ```
     . start_camera.sh
     ```
+
+
+
+6) Open another terminal on your computer, then run rviz2 using `turtlebot4_camera.rviz`
+    ```
+    rviz2 -d turtlebot4_camera.rviz
+    ```    
