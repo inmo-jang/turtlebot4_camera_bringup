@@ -17,6 +17,12 @@
     colcon build
     ```
 
+    Install dependencies
+    ```
+    sudo apt install ros-humble-depthai-ros
+    ```
+
+
 4) Copy `start_camera.sh` to the root folder
     ```
     cd ~
